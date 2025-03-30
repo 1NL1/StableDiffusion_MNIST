@@ -1,0 +1,1 @@
+Dans ce dossier, vous trouverez mon projet de recréation d'une IA par diffusion stable sans TP, et en ajoutant des aspects qui n'avaient pas été touchés comme le travail dans un espace latent ou la prise en compte de prompts pour guider la génération des images.
