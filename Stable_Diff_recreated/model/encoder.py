@@ -12,6 +12,8 @@ from torch.nn import functional as F
 class VAE_Encoder(nn.Sequential):
     """
     L'encodeur du VAE (variational auto-encodeur)
+    La ou un auto-encodeur classique apprend à transformer une image dans un espace latent, un variational apprend l'espace lattent lui-même qui est un
+    espace de distributions. Ainsi l'encodage d'une image est un echantillonage depuis la distribution apprise par l'espace.
     """
     def __init__(self):
         super().__init__(
@@ -79,7 +81,7 @@ class VAE_Encoder(nn.Sequential):
     def forward(self, x: torch.Tensor, noise: torch.Tensor) -> torch.Tensor:
         """
         x: B, C, H, W
-        noise: B, output_channels, H/8, W/8
+        noise: B, output_channels, H/8, W/8. le bruit suit une loi gaussienne N(0,1)
         """
         for couche in self:           
             x = couche(x)
@@ -87,10 +89,18 @@ class VAE_Encoder(nn.Sequential):
         #B, 8, H/8, W/8 -> B, 4, H/8, W/8 + B, 4, H/8, W/8
         mean, log_variance = torch.chunk(x, 2, dim = 1)
 
-        #Si les valeurs sont trop petites ou trop grandes, on les ramène dans une range acceptable
+        #Si les valeurs de la log_variance sont trop petites ou trop grandes, on les ramène dans une range acceptable
         log_variance = torch.clamp(log_variance, -30, 20)
 
         variance = log_variance.exp()
 
         ecartType = variance.sqrt()
         
+        #N(0,1)     -->     N(mu, teta^2)
+        #x          -->     mu + teta * x
+        x = mean + ecartType * noise
+
+        #Scale x: la constante est assez arbitraire et vient du papier
+        x *= 0.18215
+
+        return x
