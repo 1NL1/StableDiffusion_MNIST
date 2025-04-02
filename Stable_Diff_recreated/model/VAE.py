@@ -3,6 +3,7 @@ Dans ce fichier on code l'encodeur et le décodeur, qui vont respectivement comp
 Rendre les images plus petites aidera pour l'entrainement et l'inférence.
 
 On utilise un VAE (variational auto-encoder) pour que même dans l'espace latent les images qui ont une forme similaire aient une représentation similaire.
+Un VAE se distingue d'un auto-encodeur classique car il encode les données comme une distribution continue dans l'espace latent.
 """
 
 import torch
