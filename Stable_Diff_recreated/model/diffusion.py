@@ -54,8 +54,100 @@ class Unet_residualBlock(nn.Module):
         else:
             self.residualLayer = nn.Conv2d(in_channels, out_channels, kernel_size=1)
     
-    def forward(self, feature, time):
-        ##
+    def forward(self, x, time):
+        #x: B, in_channels, H, W
+        #time: 1, 1280
+
+        residue = x
+        residue = self.residualLayer(residue)
+
+        x = self.groupNorm1(x)
+        x = F.silu(x)
+        x = self.conv1(x)
+        
+        time = F.silu(time)
+        time = self.linear_time(time)
+        
+        merge = x + time.unsqueeze(-1).unsqueeze(-1)
+
+        merge = self.groupNorm2(merge)
+        merge = F.silu(merge)
+        merge = self.conv2(merge)
+
+        return x + residue
+
+class Unet_attentionBlock(nn.Module):
+    def __init__(self, n_heads: int, d_emb: int, d_context = 768):
+        super().__init__()
+        channels = n_heads * d_emb
+
+        self.groupNorm = nn.GroupNorm(32, channels, eps = 1e-6)
+        self.conv_input = nn.Conv2d(channels, channels, kernel_size=1)
+        
+        self.layerNorm1 = nn.LayerNorm(channels)
+        self.attention1 = selfAttention(n_heads, channels, in_proj_bias = False)
+        self.layerNorm2 = nn.LayerNorm(channels)
+        self.attention2 = crossAttention(n_heads, channels, d_context, in_proj_bias = False)
+        self.layerNorm3 = nn.LayerNorm(channels)
+        self.linear_geglu1 = nn.Linear(channels, 4 * channels * 2) #feed forward
+        self.linear_geglu2 = nn.Linear(4 * channels, channels)
+
+        self.conv_output = nn.Conv2d(channels, channels, kernel_size=1)
+
+    def forward(self, x, context):
+        #x: B, C, H, W
+        #context: B, Seq_len, dim=768
+
+        residue_long = x
+
+        x = self.groupNorm(x)
+        x = self.conv_input(x)
+
+        b, c, h, w = x.shape
+
+        #B, C, H, W -> B, C, H*W
+        x = x.view((b,c,h*w))
+
+        #B, C, H*W -> B, H*W, C
+        x = x.transpose(-1, -2)
+
+        #Normalization + SelfAttention + skip connection
+        residue_short = x
+
+        x = self.layerNorm1(x)
+        x = self.attention1(x)
+        x = x + residue_short
+
+        #Normalisation + CrossAttention + skip connection
+        residue_short = x
+
+        x = self.layerNorm2(x)
+        x = self.attention2(x, context)
+        x = x + residue_short
+
+        #Normalisation + feed forward (Geglu) + skip connection
+        residue_short = x
+
+        x = self.layerNorm3(x)
+        x, gate = self.linear_geglu1(x).chunk(2, dim = -1)
+        x = x * F.gelu(gate)
+
+        x = self.linear_geglu2(x)
+
+        x = x + residue_short
+
+        #reshape pour retrouver la forme originale
+        #B, H*W, C -> B, C, H*W
+        x = x.transpose(-1, -2)
+        
+        # B, C, H*W -> B, C, H, W
+        x = x.view(b, c, h, w)
+
+        #Output
+        x = self.conv_output(x)
+        x = x + residue_long
+
+        return x
 
 
 class Unet(nn.Module):
