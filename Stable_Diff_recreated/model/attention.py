@@ -52,3 +52,7 @@ class selfAttention(nn.Module):
         output = self.out_proj(score)
 
         return output
+
+class crossAttention(nn.Module):
+    def __init__(self, n_heads: int, d_emb: int, d_cross: int, in_proj_bias = True, out_proj_bias = True):
+        super().__init__()
