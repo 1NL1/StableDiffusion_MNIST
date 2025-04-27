@@ -1,3 +1,3 @@
 Dans ce dossier, vous trouverez mon projet de recréation d'une IA par diffusion stable sans TP, et en ajoutant des aspects qui n'avaient pas été touchés comme le travail dans un espace latent ou la prise en compte de prompts pour guider la génération des images.
 
-Pour tester l'IA, vous pouvez utiliser pour les poids le fichier "v1-5-pruned-emaonly.ckpt" disponible sur hugginface à l'adresse https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5/tree/main
+Pour tester l'IA, vous pouvez utiliser pour les poids le fichier "v1-5-pruned-emaonly.ckpt" disponible sur hugginface à l'adresse https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5/tree/main et à mettre dans le dossier "data" 
