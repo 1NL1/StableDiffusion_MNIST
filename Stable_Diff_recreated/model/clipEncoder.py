@@ -32,19 +32,24 @@ class CLIPLayer(nn.Module):
     def __init__(self, n_heads: int, d_model: int):
         super().__init__()
         self.attentionBlock = selfAttention(n_heads, d_model)
-        self.addAndNorm = lambda x, y : nn.layer_norm(x+y)
-        self.feedForward = nn.Sequential(
-            nn.Linear(d_model, d_model * 4),
-            lambda x : x * torch.sigmoid(1.702 * x),  #quick GELU
-            nn.Linear(4 * d_model, d_model)
-        )
-
+        self.layerNorm1 = nn.LayerNorm(d_model)
+        self.layerNorm2 = nn.LayerNorm(d_model)
+        self.linear1 = nn.Linear(d_model, d_model * 4)
+        self.linear2 = nn.Linear(4 * d_model, d_model)
+        
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         #B, seq_len, d_model
+        y = self.layerNorm1(x)
         y = self.attentionBlock(x, apply_mask = True)
-        a = self.addAndNorm(x, y)
-        b = self.feedForward(a)
-        output = self.addAndNorm(a, b)
+        y += x
+
+        #Feed Forward
+        z = self.layerNorm2(y)
+        z = self.linear1(z)
+        z = z * torch.sigmoid(1.702 * z) #quick GELU
+        z = self.linear2(z)
+        
+        output = z + y
         
         return output
 

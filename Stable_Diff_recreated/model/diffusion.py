@@ -206,7 +206,7 @@ class Unet(nn.Module):
  
             SwitchSequential(Unet_residualBlock(960, 320), Unet_attentionBlock(8, 40)),
 
-            SwitchSequential(Unet_residualBlock(640, 320), Unet_attentionBlock(8, 80)), #???pk pas 40?
+            SwitchSequential(Unet_residualBlock(640, 320), Unet_attentionBlock(8, 40)),
 
             SwitchSequential(Unet_residualBlock(640, 320), Unet_attentionBlock(8, 40)),
 
