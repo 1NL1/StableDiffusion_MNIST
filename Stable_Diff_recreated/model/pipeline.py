@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from tqdm import tqdm
+from ddpm import DDPMSampler
 
 WIDTH = 512
 HEIGHT = 512
@@ -113,3 +114,78 @@ def generate(prompt: str, negative_prompt: str, do_cfg = True, cfg_scale = 7.5, 
             to_idle(encoder) # On remet le VAE sur le CPU pour libérer de la mémoire GPU
 
         else:
+            #si on n'a pas d'image d'entrée, on commence avec du bruit aléatoire
+            latent = torch.randn(latent_shape, generator = generator, device = device) #On génère du bruit aléatoire
+
+        diffusion = models["diffusion"]
+        diffusion.to(device)
+
+        timesteps = tqdm(sampler.timesteps)
+        for i, t in enumerate(timesteps):
+            #scalaire -> (1, 320)
+            time_embedding = get_time_embedding(t).to(device) 
+
+            #B, C = 4, H, W
+            model_input = latent
+
+            if do_cfg:
+                #B, 4, H, W -> 2*B, 4, H, W
+                model_input = model_input.repeat(2, 1, 1, 1) #On répète l'image pour avoir deux images: une avec le prompt et une sans le prompt
+            
+            model_output = diffusion(model_input, time_embedding, context) #bruit prédit par le UNET
+
+            if do_cfg:
+                #On sépare les deux images: une avec le prompt et une sans le prompt
+                output_cond, output_uncond = model_output.chunk(2)
+
+                #On applique la CFG
+                model_output = output_uncond + cfg_scale * (output_cond - output_uncond)
+
+            #On enlève le bruit prédit de l'image
+            latent = sampler.step(t, latent, model_output)
+
+        to_idle(diffusion) # On remet le UNET sur le CPU pour libérer de la mémoire GPU
+
+
+        #On décode l'image latente pour obtenir l'image finale
+        decoder = models["decoder"]
+        decoder.to(device)
+        image = decoder(latent)
+        to_idle(decoder)
+        #On rescale l'image pour donner aux pixels des valeurs entre 0 et 255
+        image = rescale(image, (-1, 1), (0, 255), clamp = True)
+        
+        #B, C, H, W -> B, H, W, C
+        image = image.permute(0, 2, 3, 1)
+
+        image = image.to("cpu", torch.uint8).numpy()
+
+        return image[0] #On retourne la première image de la batch (B = 1)
+
+
+def rescale(tensor, old_range, new_range, clamp = False):
+    """Rescale un tensor de old_range à new_range"""
+    old_min, old_max = old_range
+    new_min, new_max = new_range
+
+    #On calcule le facteur de mise à l'échelle
+    scale = (new_max - new_min) / (old_max - old_min)
+
+    #On applique la mise à l'échelle
+    tensor = (tensor - old_min) * scale + new_min 
+
+    if clamp:
+        tensor = torch.clamp(tensor, new_min, new_max)
+
+    return tensor
+
+def get_time_embedding(timestep: int):
+    """transforme un timestep en son embedding
+        on fait pour ca le meme positional encoding que pour les transformers: sin(pos/10000^(2*i/dim)) 
+    """
+    #(160)
+    freqs = torch.pow(10000, -torch.arange(start = 0, end = 160, dtype=torch.float32) / 160)
+    #(1, 160)
+    x = torch.tensor([timestep], dtype = torch.float32)[:, None] * freqs[None]
+    #(1, 160) -> (1, 320)
+    return torch.cat([torch.cos(x), torch.sin(x)], dim = -1) #On concatène les sinus et cosinus pour avoir un seul embedding
