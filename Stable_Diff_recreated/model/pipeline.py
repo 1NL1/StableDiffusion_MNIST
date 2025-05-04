@@ -24,10 +24,10 @@ def generate(prompt: str, negative_prompt: str, do_cfg = True, cfg_scale = 7.5, 
         strength: la force de la diffusion image à image, plus elle est grande, plus l'image d'entrée va être modifiée
     """
     with torch.no_grad():
+        
+        to_idle = lambda x: x
         if idle_device:
-            to_idle: lambda x: x.to(idle_device)
-        else:
-            to_idle: lambda x: x
+            to_idle = lambda x: x.to(idle_device)
         
         generator = torch.Generator(device=device) #generateur de nombres aléatoires pour la génération de bruit
         if seed: 
@@ -35,7 +35,7 @@ def generate(prompt: str, negative_prompt: str, do_cfg = True, cfg_scale = 7.5, 
         else:
             generator.seed()
         
-        clip = model["clip"]
+        clip = models["clip"]
         clip.to(device)
 
         ##CFG
@@ -132,7 +132,7 @@ def generate(prompt: str, negative_prompt: str, do_cfg = True, cfg_scale = 7.5, 
                 #B, 4, H, W -> 2*B, 4, H, W
                 model_input = model_input.repeat(2, 1, 1, 1) #On répète l'image pour avoir deux images: une avec le prompt et une sans le prompt
             
-            model_output = diffusion(model_input, time_embedding, context) #bruit prédit par le UNET
+            model_output = diffusion(model_input, context, time_embedding) #bruit prédit par le UNET
 
             if do_cfg:
                 #On sépare les deux images: une avec le prompt et une sans le prompt
@@ -142,7 +142,7 @@ def generate(prompt: str, negative_prompt: str, do_cfg = True, cfg_scale = 7.5, 
                 model_output = output_uncond + cfg_scale * (output_cond - output_uncond)
 
             #On enlève le bruit prédit de l'image
-            latent = sampler.step(t, latent, model_output)
+            latent = sampler.step(int(t), latent, model_output)
 
         to_idle(diffusion) # On remet le UNET sur le CPU pour libérer de la mémoire GPU
 

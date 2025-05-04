@@ -22,7 +22,7 @@ class DDPMSampler(nn.Module):
         self.n_training_steps = n_training_steps
         self.timesteps = torch.arange(n_training_steps-1, -1, -1, dtype = torch.int32)
 
-    def set_inference_timesteps(self, n_inference_steps: int = 50):
+    def set_inference_steps(self, n_inference_steps: int = 50):
         """
         On choisit le nombre d'étapes de diffusion à utiliser lors de l'inférence (n_training_steps n'est utilisé que pour l'entraînement, on fait moins
         d'itertions lors de l'inférence pour aller plus vite)
@@ -31,7 +31,7 @@ class DDPMSampler(nn.Module):
         #entrainement: 1000 steps: 999, 998, ..., 0
         #inference: 50 steps: 999, 979, ..., 0 (pas de 1000/50 = 20)
         delta_step = self.n_training_steps // n_inference_steps
-        timesteps = torch.arange(self.n_training_steps - delta_step, -1, -1*delta_step, dtype=torch.float64)  #####a tester, vers 4h5
+        self.timesteps = torch.arange(self.n_training_steps - delta_step, -1, -1*delta_step, dtype=torch.float64)  #####a tester, vers 4h5
     
     def add_noise(self, original: torch.FloatTensor, timesteps: torch.IntTensor) -> torch.FloatTensor:
         """

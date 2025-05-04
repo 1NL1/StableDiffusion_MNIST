@@ -15,7 +15,7 @@ class SwitchSequential(nn.Sequential):
 
     def forward(self, x: torch.Tensor, context: torch.Tensor, time: torch.Tensor):
         for layer in self:
-            if isinstance(layer, Unet_attention):
+            if isinstance(layer, Unet_attentionBlock):
                 x = layer(x, context)
 
             elif isinstance(layer, Unet_residualBlock):
@@ -153,8 +153,8 @@ class Unet_attentionBlock(nn.Module):
 class Unet(nn.Module):
     def __init__(self):
         super().__init__()
-        
-        self.encoderLayers = nn.Module([
+
+        self.encoderLayers = nn.ModuleList([
             #B, 4, H/8, W/8 -> B, 320, H/8, W/8
             SwitchSequential(nn.Conv2d(4, 320, kernel_size=3, padding=1)), #conv en place, pas de downsample
             SwitchSequential(Unet_residualBlock(320, 320), Unet_attentionBlock(8, 40)),            
@@ -175,7 +175,7 @@ class Unet(nn.Module):
 
             #B, 1280, H/64, W/64
             SwitchSequential(Unet_residualBlock(1280, 1280)),
-            SwitchSequential(Unet_residualBlock(1280, 1280))
+            SwitchSequential(Unet_residualBlock(1280, 1280)),
         ])
 
         self.bottleNeck = SwitchSequential(
@@ -184,7 +184,7 @@ class Unet(nn.Module):
             Unet_residualBlock(1280, 1280)
         )
 
-        self.decoderLayers = nn.Module([
+        self.decoderLayers = nn.ModuleList([
             #B, 2560, H/64, W/64 -> B, 1280, H/64, W/64
             SwitchSequential(Unet_residualBlock(2560, 1280)),
 
@@ -212,6 +212,24 @@ class Unet(nn.Module):
 
         ])
 
+    def forward(self, x, context, time):
+        # x: (B, 4, H / 8, W / 8)
+        # context: (B, Seq_Len, Dim) 
+        # time: (1, 1280)
+
+        skip_connections = []
+        for layer in self.encoderLayers:
+            x = layer(x, context, time)
+            skip_connections.append(x)
+
+        x = self.bottleNeck(x, context, time)
+
+        for layer in self.decoderLayers:
+            # On ajoute la skip connection avant de passer x dans la couche de decodeur
+            x = torch.cat((x, skip_connections.pop()), dim=1) 
+            x = layer(x, context, time)
+        
+        return x
 
 class TimeEmbedding(nn.Module):
     def __init__(self, d_emb):
@@ -240,7 +258,7 @@ class Unet_OutputLayer(nn.Module):
         #B, 320, H/8, W/8
         x = self.groupNorm(x)
 
-        x = nn.SiLU(x)
+        x = F.silu(x)
         
         x = self.conv(x)
 

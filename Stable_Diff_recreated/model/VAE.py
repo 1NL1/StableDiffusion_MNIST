@@ -30,10 +30,10 @@ class VAE_ResidualBlock(nn.Module):
         residue_x = self.residualLayer(x)
 
         x = self.groupNorm1(x)
-        x = nn.SiLU(x)
+        x = F.silu(x)
         x = self.conv1(x)
         x = self.groupNorm2(x)
-        x = nn.SiLU(x)
+        x = F.silu(x)
         x = self.conv2(x)
         
         return x + residue_x
@@ -41,7 +41,8 @@ class VAE_ResidualBlock(nn.Module):
 class VAE_AttentionBlock(nn.Module):
     def __init__(self, channels: int):
         super().__init__()
-        self.groupNorm = nn.GroupNorm(channels)
+        print(channels)
+        self.groupNorm = nn.GroupNorm(32, channels)
         self.attention = selfAttention(1, channels)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -96,8 +97,6 @@ class VAE_Encoder(nn.Sequential):
             VAE_ResidualBlock(256,256),
 
             #B, 256, H/2, W/2 -> B, 256, H/4, W/4
-            #On fait le padding à part car on en veut un qui soit asymétrique: que à droite et en bas
-            lambda x : F.pad(x, (0,1,0,1)),
             nn.Conv2d(256, 256, kernel_size=3, stride=2),
 
             #B, 256, H/4, W/4 -> B, 512, H/4, W/4
@@ -107,7 +106,6 @@ class VAE_Encoder(nn.Sequential):
             VAE_ResidualBlock(512,512),
 
             #B, 512, H/4, W/4 -> B, 512, H/8, W/8
-            lambda x : F.pad(x, (0,1,0,1)),
             nn.Conv2d(512, 512, kernel_size=3, stride=2),            
         
             #B, 512, H/4, W/4 -> B, 512, H/4, W/4
@@ -143,7 +141,9 @@ class VAE_Encoder(nn.Sequential):
         x: B, C, H, W
         noise: B, output_channels, H/8, W/8. le bruit suit une loi gaussienne N(0,1)
         """
-        for couche in self:           
+        for couche in self:    
+            if getattr(module, 'stride', None) == (2, 2):  # On veut un padding asymetrique
+                x = F.pad(x, (0, 1, 0, 1))       
             x = couche(x)
 
         #B, 8, H/8, W/8 -> B, 4, H/8, W/8 + B, 4, H/8, W/8

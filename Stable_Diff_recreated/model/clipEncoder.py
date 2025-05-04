@@ -58,7 +58,7 @@ class CLIP(nn.Module):
         super().__init__()
         self.embedding = CLIPEmbedding(v_size = 49408, emb_size = 768, seq_len = 77)
 
-        self.layers = nn.Module([
+        self.layers = nn.ModuleList([
             CLIPLayer(n_heads = 12, d_model = 768) for _ in range(12)
         ])
 
