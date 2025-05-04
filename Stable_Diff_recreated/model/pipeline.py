@@ -10,14 +10,14 @@ HEIGHT = 512
 LATENT_WIDTH = WIDTH // 8
 LATENT_HEIGHT = HEIGHT // 8
 
-def generate(prompt: str, negative_prompt: str, do_cfg = True, cfg_scale = 7.5, sampler_name = "ddpm", models = {}, n_inferences_steps = 50, seed = None,
+def generate(prompt: str, negative_prompt: str, do_cfg = True, cfg_scale = 7.5, sampler_name = "ddpm", models = {}, n_inference_steps = 50, seed = None,
             device = None, idle_device=None, tokenizer = None, input_image = None, strength = 0.8):
     """negative_prompt: un prompt de ce qu'on ne veut pas voir dans l'image
         do_cfg: si on veut utiliser le classifier free guidance (CFG)
         cfg_scale: le coefficient de CFG, plus il est grand, plus le modèle va essayer de coller au prompt
         sampler_name: le nom du sampler à utiliser, par défaut "ddpm" (Denoising Diffusion Probabilistic Model)
         models: les modèles à utiliser pour la génération
-        n_inferences_steps: le nombre d'étapes de diffusion, plus il y en a, plus l'image est belle mais plus c'est long
+        n_inference_steps: le nombre d'étapes de diffusion, plus il y en a, plus l'image est belle mais plus c'est long
         device: le device sur lequel on veut faire le calcul
         idle_device: le device sur lequel on veut faire le calcul si on est en mode idle (CPU)
         input_image: une image d'entrée à utiliser pour la diffusion image à image
@@ -73,7 +73,7 @@ def generate(prompt: str, negative_prompt: str, do_cfg = True, cfg_scale = 7.5, 
 
         if sampler_name == "ddpm":
             sampler = DDPMSampler(generator)
-            sampler.set_inference_steps(n_inferences_steps)
+            sampler.set_inference_steps(n_inference_steps)
         
         else:
             raise ValueError(f"Sampler {sampler_name} not found")
