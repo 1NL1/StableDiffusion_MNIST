@@ -10,9 +10,9 @@ HEIGHT = 512
 LATENT_WIDTH = WIDTH // 8
 LATENT_HEIGHT = HEIGHT // 8
 
-def generate(prompt: str, negative_prompt: str, do_cfg = True, cfg_scale = 7.5, sampler_name = "ddpm", models = {}, n_inference_steps = 50, seed = None,
+def generate(prompt: str, uncond_prompt: str, do_cfg = True, cfg_scale = 7.5, sampler_name = "ddpm", models = {}, n_inference_steps = 50, seed = None,
             device = None, idle_device=None, tokenizer = None, input_image = None, strength = 0.8):
-    """negative_prompt: un prompt de ce qu'on ne veut pas voir dans l'image
+    """uncond_prompt: un prompt de ce qu'on ne veut pas voir dans l'image
         do_cfg: si on veut utiliser le classifier free guidance (CFG)
         cfg_scale: le coefficient de CFG, plus il est grand, plus le modèle va essayer de coller au prompt
         sampler_name: le nom du sampler à utiliser, par défaut "ddpm" (Denoising Diffusion Probabilistic Model)
@@ -34,7 +34,7 @@ def generate(prompt: str, negative_prompt: str, do_cfg = True, cfg_scale = 7.5, 
             generator.manual_seed(seed)
         else:
             generator.seed()
-        
+
         clip = models["clip"]
         clip.to(device)
 
@@ -45,9 +45,9 @@ def generate(prompt: str, negative_prompt: str, do_cfg = True, cfg_scale = 7.5, 
         l'output final est une combinaison des deux images: output = output_prompt + cfg_scale * (output_prompt - output_no_prompt)
         """
         if do_cfg:
-            # On encode le prompt et le negative_prompt en tokens
+            # On encode le prompt et le uncond_prompt en tokens
             cond_tokens = tokenizer.batch_encode_plus([prompt], padding = "max_length", max_length = 77).input_ids
-            uncond_tokens = tokenizer.batch_encode_plus([negative_prompt], padding = "max_length", max_length = 77).input_ids
+            uncond_tokens = tokenizer.batch_encode_plus([uncond_prompt], padding = "max_length", max_length = 77).input_ids
 
             #B, seq_len
             cond_tokens = torch.tensor(cond_tokens, dtype = torch.long, device = device)
@@ -61,7 +61,7 @@ def generate(prompt: str, negative_prompt: str, do_cfg = True, cfg_scale = 7.5, 
             #On concatène les deux contextes pour avoir un seul contexte
             #2, seq_len, dim -> 2, 77, 768
             context = torch.cat([cond_context, uncond_context])
-        
+
         else:
             # sans cfg, output = output_prompt
             tokens = tokenizer.batch_encode_plus([prompt], padding = "max_length", max_length = 77).input_ids
@@ -73,7 +73,7 @@ def generate(prompt: str, negative_prompt: str, do_cfg = True, cfg_scale = 7.5, 
 
         if sampler_name == "ddpm":
             sampler = DDPMSampler(generator)
-            sampler.set_inference_steps(n_inference_steps)
+            sampler.set_inference_timesteps(n_inference_steps)
         
         else:
             raise ValueError(f"Sampler {sampler_name} not found")
@@ -122,6 +122,7 @@ def generate(prompt: str, negative_prompt: str, do_cfg = True, cfg_scale = 7.5, 
 
         timesteps = tqdm(sampler.timesteps)
         for i, t in enumerate(timesteps):
+            t = int(t)
             #scalaire -> (1, 320)
             time_embedding = get_time_embedding(t).to(device) 
 
@@ -142,7 +143,7 @@ def generate(prompt: str, negative_prompt: str, do_cfg = True, cfg_scale = 7.5, 
                 model_output = output_uncond + cfg_scale * (output_cond - output_uncond)
 
             #On enlève le bruit prédit de l'image
-            latent = sampler.step(int(t), latent, model_output)
+            latent = sampler.step(t, latent, model_output)
 
         to_idle(diffusion) # On remet le UNET sur le CPU pour libérer de la mémoire GPU
 

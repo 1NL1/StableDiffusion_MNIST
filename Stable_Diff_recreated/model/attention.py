@@ -3,12 +3,12 @@ from torch import nn
 from torch.nn import functional as F
 import math
 
-class selfAttention(nn.Module):
+class SelfAttention(nn.Module):
     def __init__(self, n_heads: int, d_emb:int, in_proj_bias = True, out_proj_bias = True):
         super().__init__()
 
-        self.in_proj = nn.Linear(d_emb, 3*d_emb, in_proj_bias)
-        self.out_proj = nn.Linear(d_emb, d_emb, out_proj_bias)
+        self.in_proj = nn.Linear(d_emb, 3*d_emb, bias = in_proj_bias)
+        self.out_proj = nn.Linear(d_emb, d_emb, bias = out_proj_bias)
         self.n_heads = n_heads
         assert d_emb % n_heads == 0
         self.d_heads = d_emb // n_heads
@@ -18,7 +18,7 @@ class selfAttention(nn.Module):
         input_shape = x.shape
         batch_size, seq_len, d_emb = input_shape
 
-        k,q,v = self.in_proj(x).chunk(3, dim = -1)
+        q,k,v = self.in_proj(x).chunk(3, dim = -1)
 
         #taille des matrices "coupées" en prenant en compte les têtes
         interm_shape = (batch_size, seq_len, self.n_heads, self.d_heads)
@@ -32,10 +32,9 @@ class selfAttention(nn.Module):
         w = q @ k.transpose(-1,-2)
 
         if apply_mask:
-            mask = torch.ones_like(w, dtype = torch.float32)
+            mask = torch.ones_like(w, dtype = torch.bool)
             mask = mask.triu(1) #.triu retourne la partie triangulaire supérieure 
-            mask *= -torch.inf
-            w += mask
+            w.masked_fill_(mask, -torch.inf)
 
         w /= math.sqrt(self.d_heads)
 
@@ -53,7 +52,7 @@ class selfAttention(nn.Module):
 
         return output
 
-class crossAttention(nn.Module):
+class CrossAttention(nn.Module):
     def __init__(self, n_heads: int, d_emb: int, d_cross: int, in_proj_bias = True, out_proj_bias = True):
         super().__init__()
 
@@ -62,7 +61,7 @@ class crossAttention(nn.Module):
         self.v_proj   = nn.Linear(d_cross, d_emb, bias=in_proj_bias)
         self.out_proj = nn.Linear(d_emb, d_emb, bias=out_proj_bias)
         self.n_heads = n_heads
-        self.d_head = d_emb // n_heads
+        self.d_heads = d_emb // n_heads
     
     def forward(self, x, y):
         # x (latent): # (B, Seq_Len_Q, Dim_Q)
@@ -71,7 +70,7 @@ class crossAttention(nn.Module):
         input_shape = x.shape
         batch_size, sequence_length, d_emb = input_shape
         # Forme en prenant les heads en compte
-        interm_shape = (batch_size, -1, self.n_heads, self.d_head)
+        interm_shape = (batch_size, -1, self.n_heads, self.d_heads)
         
         # (B, Seq_Len_Q, Dim_Q) -> (B, Seq_Len_Q, Dim_Q)
         q = self.q_proj(x)
@@ -91,7 +90,7 @@ class crossAttention(nn.Module):
         w = q @ k.transpose(-1, -2)
         
         # (B, H, Seq_Len_Q, Seq_Len_KV)
-        w /= math.sqrt(self.d_head)
+        w /= math.sqrt(self.d_heads)
         
         # (B, H, Seq_Len_Q, Seq_Len_KV)
         w = F.softmax(w, dim=-1)

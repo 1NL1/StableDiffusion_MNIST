@@ -5,7 +5,7 @@ Dans ce fichier on implémente le modèle de diffusion, ie le Unet lui-même
 import torch
 from torch import nn
 from torch.nn import functional as F
-from attention import selfAttention, crossAttention
+from attention import SelfAttention, CrossAttention
 
 
 class SwitchSequential(nn.Sequential):
@@ -42,57 +42,57 @@ class UpSample(nn.Module):
 class Unet_residualBlock(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, d_time: int = 1280):
         super().__init__()
-        self.groupNorm1 = nn.GroupNorm(32, in_channels)
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size = 3, padding = 1)
+        self.groupnorm_feature = nn.GroupNorm(32, in_channels)
+        self.conv_feature = nn.Conv2d(in_channels, out_channels, kernel_size = 3, padding = 1)
         self.linear_time = nn.Linear(d_time, out_channels)
 
-        self.groupNorm2 = nn.GroupNorm(32, out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
+        self.groupnorm_merged = nn.GroupNorm(32, out_channels)
+        self.conv_merged = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
 
         if in_channels == out_channels:
-            self.residualLayer = nn.Identity()
+            self.residual_layer = nn.Identity()
         else:
-            self.residualLayer = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+            self.residual_layer = nn.Conv2d(in_channels, out_channels, kernel_size=1, padding = 0)
     
     def forward(self, x, time):
         #x: B, in_channels, H, W
         #time: 1, 1280
 
         residue = x
-        residue = self.residualLayer(residue)
+        residue = self.residual_layer(residue)
 
-        x = self.groupNorm1(x)
+        x = self.groupnorm_feature(x)
         x = F.silu(x)
-        x = self.conv1(x)
+        x = self.conv_feature(x)
         
         time = F.silu(time)
         time = self.linear_time(time)
         
         merge = x + time.unsqueeze(-1).unsqueeze(-1)
 
-        merge = self.groupNorm2(merge)
+        merge = self.groupnorm_merged(merge)
         merge = F.silu(merge)
-        merge = self.conv2(merge)
+        merge = self.conv_merged(merge)
 
-        return x + residue
+        return merge + residue
 
 class Unet_attentionBlock(nn.Module):
     def __init__(self, n_heads: int, d_emb: int, d_context = 768):
         super().__init__()
         channels = n_heads * d_emb
 
-        self.groupNorm = nn.GroupNorm(32, channels, eps = 1e-6)
-        self.conv_input = nn.Conv2d(channels, channels, kernel_size=1)
+        self.groupnorm = nn.GroupNorm(32, channels, eps = 1e-6)
+        self.conv_input = nn.Conv2d(channels, channels, kernel_size=1, padding = 0)
         
-        self.layerNorm1 = nn.LayerNorm(channels)
-        self.attention1 = selfAttention(n_heads, channels, in_proj_bias = False)
-        self.layerNorm2 = nn.LayerNorm(channels)
-        self.attention2 = crossAttention(n_heads, channels, d_context, in_proj_bias = False)
-        self.layerNorm3 = nn.LayerNorm(channels)
-        self.linear_geglu1 = nn.Linear(channels, 4 * channels * 2) #feed forward
-        self.linear_geglu2 = nn.Linear(4 * channels, channels)
+        self.layernorm_1 = nn.LayerNorm(channels)
+        self.attention_1 = SelfAttention(n_heads, channels, in_proj_bias = False)
+        self.layernorm_2 = nn.LayerNorm(channels)
+        self.attention_2 = CrossAttention(n_heads, channels, d_context, in_proj_bias = False)
+        self.layernorm_3 = nn.LayerNorm(channels)
+        self.linear_geglu_1 = nn.Linear(channels, 4 * channels * 2) #feed forward
+        self.linear_geglu_2 = nn.Linear(4 * channels, channels)
 
-        self.conv_output = nn.Conv2d(channels, channels, kernel_size=1)
+        self.conv_output = nn.Conv2d(channels, channels, kernel_size=1, padding = 0)
 
     def forward(self, x, context):
         #x: B, C, H, W
@@ -100,7 +100,7 @@ class Unet_attentionBlock(nn.Module):
 
         residue_long = x
 
-        x = self.groupNorm(x)
+        x = self.groupnorm(x)
         x = self.conv_input(x)
 
         b, c, h, w = x.shape
@@ -114,25 +114,25 @@ class Unet_attentionBlock(nn.Module):
         #Normalization + SelfAttention + skip connection
         residue_short = x
 
-        x = self.layerNorm1(x)
-        x = self.attention1(x)
+        x = self.layernorm_1(x)
+        x = self.attention_1(x)
         x = x + residue_short
 
         #Normalisation + CrossAttention + skip connection
         residue_short = x
 
-        x = self.layerNorm2(x)
-        x = self.attention2(x, context)
+        x = self.layernorm_2(x)
+        x = self.attention_2(x, context)
         x = x + residue_short
 
         #Normalisation + feed forward (Geglu) + skip connection
         residue_short = x
 
-        x = self.layerNorm3(x)
-        x, gate = self.linear_geglu1(x).chunk(2, dim = -1)
+        x = self.layernorm_3(x)
+        x, gate = self.linear_geglu_1(x).chunk(2, dim = -1)
         x = x * F.gelu(gate)
 
-        x = self.linear_geglu2(x)
+        x = self.linear_geglu_2(x)
 
         x = x + residue_short
 
@@ -154,7 +154,7 @@ class Unet(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.encoderLayers = nn.ModuleList([
+        self.encoders = nn.ModuleList([
             #B, 4, H/8, W/8 -> B, 320, H/8, W/8
             SwitchSequential(nn.Conv2d(4, 320, kernel_size=3, padding=1)), #conv en place, pas de downsample
             SwitchSequential(Unet_residualBlock(320, 320), Unet_attentionBlock(8, 40)),            
@@ -178,13 +178,13 @@ class Unet(nn.Module):
             SwitchSequential(Unet_residualBlock(1280, 1280)),
         ])
 
-        self.bottleNeck = SwitchSequential(
+        self.bottleneck = SwitchSequential(
             Unet_residualBlock(1280, 1280),
             Unet_attentionBlock(8, 160),
             Unet_residualBlock(1280, 1280)
         )
 
-        self.decoderLayers = nn.ModuleList([
+        self.decoders = nn.ModuleList([
             #B, 2560, H/64, W/64 -> B, 1280, H/64, W/64
             SwitchSequential(Unet_residualBlock(2560, 1280)),
 
@@ -218,13 +218,13 @@ class Unet(nn.Module):
         # time: (1, 1280)
 
         skip_connections = []
-        for layer in self.encoderLayers:
+        for layer in self.encoders:
             x = layer(x, context, time)
             skip_connections.append(x)
 
-        x = self.bottleNeck(x, context, time)
+        x = self.bottleneck(x, context, time)
 
-        for layer in self.decoderLayers:
+        for layer in self.decoders:
             # On ajoute la skip connection avant de passer x dans la couche de decodeur
             x = torch.cat((x, skip_connections.pop()), dim=1) 
             x = layer(x, context, time)
@@ -234,29 +234,29 @@ class Unet(nn.Module):
 class TimeEmbedding(nn.Module):
     def __init__(self, d_emb):
         super().__init__()
-        self.linear1 = nn.Linear(d_emb, 4 * d_emb)
-        self.linear2 = nn.Linear(4 * d_emb, 4 * d_emb)
+        self.linear_1 = nn.Linear(d_emb, 4 * d_emb)
+        self.linear_2 = nn.Linear(4 * d_emb, 4 * d_emb)
 
     def forward(self, time: torch.Tensor) -> torch.Tensor:
         #1, 320 -> 1, 1280
-        time = self.linear1(time)
+        time = self.linear_1(time)
 
         time = F.silu(time)
 
         #1, 1280 -> 1, 1280
-        time = self.linear2(time)
+        time = self.linear_2(time)
 
         return time
 
 class Unet_OutputLayer(nn.Module):
     def __init__(self, in_channels: int, out_channels: int):
         super().__init__()
-        self.groupNorm = nn.GroupNorm(32, in_channels)
+        self.groupnorm = nn.GroupNorm(32, in_channels)
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
 
     def forward(self, x):
         #B, 320, H/8, W/8
-        x = self.groupNorm(x)
+        x = self.groupnorm(x)
 
         x = F.silu(x)
         

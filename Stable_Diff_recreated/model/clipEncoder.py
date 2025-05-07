@@ -6,7 +6,7 @@ C'est grosso-modo la partie encodeur d'un transformer
 import torch
 from torch import nn
 from torch.nn import functional as F
-from attention import selfAttention
+from attention import SelfAttention
 
 class CLIPEmbedding(nn.Module):
     #comprend l'embedding et le positionnal encoding
@@ -15,7 +15,7 @@ class CLIPEmbedding(nn.Module):
         self.token_embedding = nn.Embedding(v_size, emb_size)
 
         #Au lieu de la fonction sinusoidale utilisée pour les transfos, on prend pour l'embedding des poids préconçus
-        self.position_embedding = nn.Parameter(torch.zeros(seq_len, emb_size))
+        self.position_embedding = nn.Parameter(torch.zeros((seq_len, emb_size)))
     
     def forward(self, tokens: torch.Tensor):
         
@@ -31,23 +31,23 @@ class CLIPEmbedding(nn.Module):
 class CLIPLayer(nn.Module):
     def __init__(self, n_heads: int, d_model: int):
         super().__init__()
-        self.attentionBlock = selfAttention(n_heads, d_model)
-        self.layerNorm1 = nn.LayerNorm(d_model)
-        self.layerNorm2 = nn.LayerNorm(d_model)
-        self.linear1 = nn.Linear(d_model, d_model * 4)
-        self.linear2 = nn.Linear(4 * d_model, d_model)
+        self.attention = SelfAttention(n_heads, d_model)
+        self.layernorm_1 = nn.LayerNorm(d_model)
+        self.layernorm_2 = nn.LayerNorm(d_model)
+        self.linear_1 = nn.Linear(d_model, d_model * 4)
+        self.linear_2 = nn.Linear(4 * d_model, d_model)
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         #B, seq_len, d_model
-        y = self.layerNorm1(x)
-        y = self.attentionBlock(x, apply_mask = True)
+        y = self.layernorm_1(x)
+        y = self.attention(y, apply_mask = True)
         y += x
 
         #Feed Forward
-        z = self.layerNorm2(y)
-        z = self.linear1(z)
+        z = self.layernorm_2(y)
+        z = self.linear_1(z)
         z = z * torch.sigmoid(1.702 * z) #quick GELU
-        z = self.linear2(z)
+        z = self.linear_2(z)
         
         output = z + y
         
@@ -62,7 +62,7 @@ class CLIP(nn.Module):
             CLIPLayer(n_heads = 12, d_model = 768) for _ in range(12)
         ])
 
-        self.layerNorm = nn.LayerNorm(768)
+        self.layernorm = nn.LayerNorm(768)
     
     def forward(self, tokens: torch.LongTensor) -> torch.FloatTensor:
         tokens = tokens.type(torch.long)
@@ -75,5 +75,5 @@ class CLIP(nn.Module):
             state = layer(state)
 
         #B, seq_len, emb_dim
-        output = self.layerNorm(state)
+        output = self.layernorm(state)
         return output

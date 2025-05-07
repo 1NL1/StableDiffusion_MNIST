@@ -9,50 +9,51 @@ Un VAE se distingue d'un auto-encodeur classique car il encode les données comm
 import torch
 from torch import nn
 from torch.nn import functional as F
-from attention import selfAttention
+from attention import SelfAttention
 
 class VAE_ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.groupNorm1 = nn.GroupNorm(32, in_channels)
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding = 1)
-        self.groupNorm2 = nn.GroupNorm(32, out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
+        self.groupnorm_1 = nn.GroupNorm(32, in_channels)
+        self.conv_1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding = 1)
+        self.groupnorm_2 = nn.GroupNorm(32, out_channels)
+        self.conv_2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
 
         if in_channels == out_channels:
-            self.residualLayer = nn.Identity()
+            self.residual_layer = nn.Identity()
         else:
-            self.residualLayer = nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=0)
+            self.residual_layer = nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=0)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         #x : B, in_channels, H, W
 
-        residue_x = self.residualLayer(x)
+        residue_x = self.residual_layer(x)
 
-        x = self.groupNorm1(x)
+        x = self.groupnorm_1(x)
         x = F.silu(x)
-        x = self.conv1(x)
-        x = self.groupNorm2(x)
+        x = self.conv_1(x)
+        x = self.groupnorm_2(x)
         x = F.silu(x)
-        x = self.conv2(x)
+        x = self.conv_2(x)
         
         return x + residue_x
 
 class VAE_AttentionBlock(nn.Module):
     def __init__(self, channels: int):
         super().__init__()
-        print(channels)
-        self.groupNorm = nn.GroupNorm(32, channels)
-        self.attention = selfAttention(1, channels)
+        self.groupnorm = nn.GroupNorm(32, channels)
+        self.attention = SelfAttention(1, channels)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         #x: B, C, H, W
         residue = x
 
+        x = self.groupnorm(x)
+
         b,c,h,w = x.shape
 
         #B, C, H, W -> B, C, H*W
-        x = x.view(b,c,h*w)
+        x = x.view((b,c,h*w))
     
         #B,C,H*W -> B,H*W, C
         x = x.transpose(-1, -2)
@@ -64,7 +65,7 @@ class VAE_AttentionBlock(nn.Module):
         x = x.transpose(-1, -2)
 
         #B, C, H*W -> B, C, H, W
-        x = x.view(b,c,h,w)
+        x = x.view((b,c,h,w))
 
         return x + residue
 
@@ -88,7 +89,7 @@ class VAE_Encoder(nn.Sequential):
             VAE_ResidualBlock(128,128),
         
             #B, 128, H, W -> B, 128, H/2, W/2
-            nn.Conv2d(128, 128, kernel_size=3, stride=2),
+            nn.Conv2d(128, 128, kernel_size=3, stride=2, padding = 0),
 
             #B, 128, H/2, W/2 -> B, 256, H/2, W/2
             VAE_ResidualBlock(128,256),
@@ -97,7 +98,7 @@ class VAE_Encoder(nn.Sequential):
             VAE_ResidualBlock(256,256),
 
             #B, 256, H/2, W/2 -> B, 256, H/4, W/4
-            nn.Conv2d(256, 256, kernel_size=3, stride=2),
+            nn.Conv2d(256, 256, kernel_size=3, stride=2, padding = 0),
 
             #B, 256, H/4, W/4 -> B, 512, H/4, W/4
             VAE_ResidualBlock(256,512),
@@ -106,7 +107,7 @@ class VAE_Encoder(nn.Sequential):
             VAE_ResidualBlock(512,512),
 
             #B, 512, H/4, W/4 -> B, 512, H/8, W/8
-            nn.Conv2d(512, 512, kernel_size=3, stride=2),            
+            nn.Conv2d(512, 512, kernel_size=3, stride=2, padding = 0),            
         
             #B, 512, H/4, W/4 -> B, 512, H/4, W/4
             VAE_ResidualBlock(512,512),
@@ -133,7 +134,7 @@ class VAE_Encoder(nn.Sequential):
             nn.Conv2d(512, 8, kernel_size=3, padding=1),
 
             #B, 8, H/4, W/4 -> B, 8, H/8, W/8
-            nn.Conv2d(8, 8, kernel_size=1),
+            nn.Conv2d(8, 8, kernel_size=1, padding = 0),
         )
 
     def forward(self, x: torch.Tensor, noise: torch.Tensor) -> torch.Tensor:
@@ -142,7 +143,7 @@ class VAE_Encoder(nn.Sequential):
         noise: B, output_channels, H/8, W/8. le bruit suit une loi gaussienne N(0,1)
         """
         for couche in self:    
-            if getattr(module, 'stride', None) == (2, 2):  # On veut un padding asymetrique
+            if getattr(couche, 'stride', None) == (2, 2):  # On veut un padding asymetrique
                 x = F.pad(x, (0, 1, 0, 1))       
             x = couche(x)
 
