@@ -11,3 +11,6 @@ Le dossier "data" contient trois fichiers pris sur hugginface (au lien précéde
 Dans ce projet, le processus de diffusion stable a été entièrement recréé, à l'exception de:
 - l'entrainement, les poids du modèle ayant été pris sur hugginface
 - le tokenizer pour le traitement des prompts, nous avons pris le CLIPTokenizer de la bibliotheque Transformers.
+
+
+Merci à Umar Jamil pour sa vidéo "Coding stable diffusion from scratch in PyTorch" dont je me suis largement inspiré.

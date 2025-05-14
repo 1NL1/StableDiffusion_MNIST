@@ -11,7 +11,7 @@ LATENT_WIDTH = WIDTH // 8
 LATENT_HEIGHT = HEIGHT // 8
 
 def generate(prompt: str, uncond_prompt: str, do_cfg = True, cfg_scale = 7.5, sampler_name = "ddpm", models = {}, n_inference_steps = 50, seed = None,
-            device = None, idle_device=None, tokenizer = None, input_image = None, strength = 0.8):
+            device = None, idle_device=None, tokenizer = None, input_image = None, strength = 0.8, delta = None):
     """uncond_prompt: un prompt de ce qu'on ne veut pas voir dans l'image
         do_cfg: si on veut utiliser le classifier free guidance (CFG)
         cfg_scale: le coefficient de CFG, plus il est grand, plus le modèle va essayer de coller au prompt
@@ -22,7 +22,10 @@ def generate(prompt: str, uncond_prompt: str, do_cfg = True, cfg_scale = 7.5, sa
         idle_device: le device sur lequel on veut faire le calcul si on est en mode idle (CPU)
         input_image: une image d'entrée à utiliser pour la diffusion image à image
         strength: la force de la diffusion image à image, plus elle est grande, plus l'image d'entrée va être modifiée
+        delta: toutes les combien d'itération on veut sauvegarder une image pour montrer la progression
     """
+    lstLatent = []
+
     with torch.no_grad():
         
         to_idle = lambda x: x
@@ -132,7 +135,7 @@ def generate(prompt: str, uncond_prompt: str, do_cfg = True, cfg_scale = 7.5, sa
             if do_cfg:
                 #B, 4, H, W -> 2*B, 4, H, W
                 model_input = model_input.repeat(2, 1, 1, 1) #On répète l'image pour avoir deux images: une avec le prompt et une sans le prompt
-            
+
             model_output = diffusion(model_input, context, time_embedding) #bruit prédit par le UNET
 
             if do_cfg:
@@ -145,24 +148,32 @@ def generate(prompt: str, uncond_prompt: str, do_cfg = True, cfg_scale = 7.5, sa
             #On enlève le bruit prédit de l'image
             latent = sampler.step(t, latent, model_output)
 
+            if delta is not None:
+                if i % delta == 0:
+                    lstLatent.append(latent)
+        
+        lstLatent.append(latent)
+
         to_idle(diffusion) # On remet le UNET sur le CPU pour libérer de la mémoire GPU
 
+        decoder = models["decoder"].to(device)
+        lstImages = []
+        for i,latent in enumerate(lstLatent):
+            #On décode l'image latente pour obtenir l'image finale
+            image = decoder(latent)
+            
+            #On rescale l'image pour donner aux pixels des valeurs entre 0 et 255
+            image = rescale(image, (-1, 1), (0, 255), clamp = True)
+            
+            #B, C, H, W -> B, H, W, C
+            image = image.permute(0, 2, 3, 1)
 
-        #On décode l'image latente pour obtenir l'image finale
-        decoder = models["decoder"]
-        decoder.to(device)
-        image = decoder(latent)
+            image = image.to("cpu", torch.uint8).numpy()
+            lstImages.append(image[0]) #On retourne la première image de la batch (B = 1)
+
         to_idle(decoder)
-        #On rescale l'image pour donner aux pixels des valeurs entre 0 et 255
-        image = rescale(image, (-1, 1), (0, 255), clamp = True)
-        
-        #B, C, H, W -> B, H, W, C
-        image = image.permute(0, 2, 3, 1)
 
-        image = image.to("cpu", torch.uint8).numpy()
-
-        return image[0] #On retourne la première image de la batch (B = 1)
-
+        return lstImages
 
 def rescale(tensor, old_range, new_range, clamp = False):
     """Rescale un tensor de old_range à new_range"""
